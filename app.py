@@ -348,7 +348,7 @@ if st.button("📝 Save Current Prediction to Log"):
     st.success("Prediction saved successfully!")
 
 if not st.session_state.prediction_log.empty:
-    st.dataframe(st.session_state.prediction_log, use_container_width=True)
+    st.dataframe(st.session_state.prediction_log, width='stretch')
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
         csv_data = st.session_state.prediction_log.to_csv(index=False).encode('utf-8')
@@ -390,7 +390,7 @@ with st.expander("📊 Model Performance Evaluation (LOO-CV)", expanded=False):
                 return ['font-weight: bold; color: #2e7d32' if v == col.min() else '' for v in col]
 
         styled = styled.apply(highlight_best, subset=['R²', 'RMSE', 'MAE'])
-        st.dataframe(styled.hide(axis="index"), use_container_width=True)
+        st.dataframe(styled.hide(axis="index"), width='stretch')
 
     st.info("**Best model per target (green highlight):** The model with the highest R² and lowest RMSE/MAE. "
             "Note: Negative R² values indicate that the model performs worse than simply predicting the mean.")
