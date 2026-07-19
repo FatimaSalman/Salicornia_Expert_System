@@ -20,7 +20,7 @@ from datetime import datetime
 # ==========================================
 # 1. DATA LOADING
 # ==========================================
-# Ciechocinek: fully open data (Ďurkovič et al. 2025, Sci Rep 15, 964) -> used for AI training
+# Ciechocinek: fully open data (Ďurkovič et al. 2026, Sci Rep 15, 964) -> used for AI training
 # Inowrocław: cell-wall stiffness/biomass data originally from Cárdenas Pérez et al. 2024,
 #   Environ. Exp. Bot. 218, 105606 (Elsevier). We hold an Elsevier RightsLink license
 #   (License #6302010540138) to reproduce Table S1 as a REFERENCE TABLE in the manuscript.
@@ -46,7 +46,7 @@ df_inow = pd.read_csv(io.StringIO(data_inowroclaw))
 TRAINING_POINTS_CIECH = sorted(df_ciech['NaCl_mM'].tolist())
 
 # Pearson correlation matrix (Table S2, Ciechocinek population).
-# Source: Cárdenas Pérez et al. 2025, Scientific Reports 15, article 964,
+# Source: Cárdenas Pérez et al. 2026, Scientific Reports 15, article 964,
 # doi.org/10.1038/s41598-025-30480-w
 CORR_CSV = """Variable,E stiffness,Pectin HM-HG,Cellulose,S/G,H/G,S,G,H,Lignin-Total yield,FW
 E stiffness,1.0,0.556,0.950,0.239,-0.002,-0.080,-0.602,-0.889,-0.349,0.477
@@ -244,7 +244,7 @@ with col_text:
             <p style="color: #555; line-height: 1.2;">
                 Ciechocinek population data developed based on the datasets provided by 
                 <strong>Dr. Stefany Cárdenas Pérez and Prof. Jaroslav Ďurkovič</strong> in their study published in 
-                <i>(Cárdenas Pérez et al. 2025. Scientific Reports 15, article number 964, 
+                <i>(Cárdenas Pérez et al. 2026. Scientific Reports 15, article number 964, 
     doi.org/10.1038/s41598-025-30480-w)</i>
             </p>
         </div>
@@ -542,7 +542,7 @@ def create_report(current_pop, current_nacl, current_biomass, current_stiffness,
 
     pdf.ln(10)
     pdf.set_font('DejaVu', 'I', 9)
-    pdf.cell(0, 8, 'Data Source: Cárdenas Pérez et al. (2025), Scientific Reports 15, 964.', ln=True)
+    pdf.cell(0, 8, 'Data Source: Cárdenas Pérez et al. (2026), Scientific Reports 15, 964.', ln=True)
 
     return bytes(pdf.output())
 
