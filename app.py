@@ -20,7 +20,7 @@ from datetime import datetime
 # ==========================================
 # 1. DATA LOADING
 # ==========================================
-# Ciechocinek: fully open data (Ďurkovič et al. 2026, Sci Rep 16, 964) -> used for AI training
+# Ciechocinek: fully open data (Cárdenas Pérez et al. 2026, Sci Rep 16, 964) -> used for AI training
 # Inowrocław: cell-wall stiffness/biomass data originally from Cárdenas Pérez et al. 2024,
 #   Environ. Exp. Bot. 218, 105606 (Elsevier). We hold an Elsevier RightsLink license
 #   (License #6302010540138) to reproduce Table S1 as a REFERENCE TABLE in the manuscript.
@@ -198,6 +198,28 @@ def get_extrapolation_warning(nacl_input, training_points):
             f"({nearest} mM); prediction is interpolated.")
 
 # ==========================================
+# 3b. REFERENCE PLANT PHOTOS (Ciechocinek)
+# ==========================================
+# One representative, standardized photo (white background + ruler for scale,
+# as provided by S. Cardenas Perez) per documented salinity level.
+# Place the actual files at:  images/ciechocinek/C<conc>.jpg
+# e.g. images/ciechocinek/C0.jpg, C200.jpg, C400.jpg, C600.jpg, C800.jpg, C1000.jpg
+CIECH_PHOTO_DIR = "images/ciechocinek"
+CIECH_PHOTO_CONCENTRATIONS = [0, 200, 400, 600, 800, 1000]
+
+
+def get_nearest_photo_path(nacl_input, photo_dir=CIECH_PHOTO_DIR,
+                            available=CIECH_PHOTO_CONCENTRATIONS):
+    """Return (path, documented_conc) for the nearest concentration that has
+    a reference photo on disk. Returns (None, None) if no photo file exists yet."""
+    nearest = min(available, key=lambda c: abs(c - nacl_input))
+    path = os.path.join(photo_dir, f"C{nearest}.jpg")
+    if os.path.isfile(path):
+        return path, nearest
+    return None, nearest
+
+
+# ==========================================
 # 4. USER INTERFACE (STREAMLIT APP)
 # ==========================================
 
@@ -308,6 +330,24 @@ with col1:
     st.metric(label=f"Predicted Fresh Biomass ({selected_pop})", value=f"{predicted_biomass:.2f} g")
 with col2:
     st.metric(label=f"Predicted Stiffness ({selected_pop})", value=f"{predicted_stiffness:.3f} MPa")
+
+# --- REFERENCE PLANT PHOTO ---
+photo_path, documented_conc = get_nearest_photo_path(nacl_input)
+if photo_path:
+    col_photo, col_caption = st.columns([1, 2])
+    with col_photo:
+        st.image(photo_path, width='stretch')
+    with col_caption:
+        if documented_conc == nacl_input:
+            st.caption(f"📷 Reference photo: Ciechocinek plant at {documented_conc} mM NaCl "
+                       f"(Cárdenas Pérez et al., original photographic documentation).")
+        else:
+            st.caption(f"📷 Closest documented reference photo available: {documented_conc} mM NaCl. "
+                       f"No photo was taken at exactly {nacl_input} mM.")
+else:
+    st.caption(f"📷 Reference photo not yet available for {documented_conc} mM "
+               f"(closest documented concentration). Add it at "
+               f"`{CIECH_PHOTO_DIR}/C{documented_conc}.jpg` to display it here.")
 
 # Expert Rules
 st.write("---")
