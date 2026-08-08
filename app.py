@@ -20,7 +20,7 @@ from datetime import datetime
 # ==========================================
 # 1. DATA LOADING
 # ==========================================
-# Ciechocinek: fully open data (Cárdenas Pérez et al. 2026, Sci Rep 16, 964) -> used for AI training
+# Ciechocinek: fully open data (Ďurkovič et al. 2026, Sci Rep 16, 964) -> used for AI training
 # Inowrocław: cell-wall stiffness/biomass data originally from Cárdenas Pérez et al. 2024,
 #   Environ. Exp. Bot. 218, 105606 (Elsevier). We hold an Elsevier RightsLink license
 #   (License #6302010540138) to reproduce Table S1 as a REFERENCE TABLE in the manuscript.
@@ -34,6 +34,15 @@ data_ciechocinek = """NaCl_mM,Stiffness,FW
 400,1.304,10.10
 1000,0.357,0.50"""
 
+# NEW (2026-08-08): Stiffness values for 600 and 800 mM received from S. Cardenas Perez
+# (Force_Curve_Analysis_Ciechocinek_600_800__080726.xlsx, "Full Table" sheet, "Average Ciech"
+# column). Fresh weight (biomass) for these two points has NOT been received yet, so the
+# Biomass model is still trained on the original 4 points only, while the Stiffness model
+# now uses all 6 points.
+data_ciechocinek_stiffness_extra = """NaCl_mM,Stiffness
+600,1.003
+800,0.605"""
+
 data_inowroclaw = """NaCl_mM,Stiffness,FW
 0,0.518,3.44
 200,0.278,5.85
@@ -42,8 +51,24 @@ data_inowroclaw = """NaCl_mM,Stiffness,FW
 
 df_ciech = pd.read_csv(io.StringIO(data_ciechocinek))
 df_inow = pd.read_csv(io.StringIO(data_inowroclaw))
+df_ciech_stiff_extra = pd.read_csv(io.StringIO(data_ciechocinek_stiffness_extra))
 
-TRAINING_POINTS_CIECH = sorted(df_ciech['NaCl_mM'].tolist())
+# Full Stiffness dataset (6 points): original 4 + the new 600/800 mM values
+df_ciech_stiffness = pd.concat(
+    [df_ciech[['NaCl_mM', 'Stiffness']], df_ciech_stiff_extra],
+    ignore_index=True
+).sort_values('NaCl_mM').reset_index(drop=True)
+
+# Biomass dataset stays at 4 points until FW for 600/800 mM is received
+df_ciech_biomass = df_ciech[['NaCl_mM', 'FW']].copy()
+
+# Combined reference table for transparent display (FW is NaN/pending for 600 & 800 mM)
+df_ciech_combined = pd.merge(df_ciech_stiffness, df_ciech_biomass, on='NaCl_mM', how='outer').sort_values('NaCl_mM').reset_index(drop=True)
+
+TRAINING_POINTS_CIECH_STIFFNESS = sorted(df_ciech_stiffness['NaCl_mM'].tolist())
+TRAINING_POINTS_CIECH_BIOMASS = sorted(df_ciech_biomass['NaCl_mM'].tolist())
+# Kept for any legacy reference; biomass is currently the more limited of the two models
+TRAINING_POINTS_CIECH = TRAINING_POINTS_CIECH_BIOMASS
 
 # Pearson correlation matrix (Table S2, Ciechocinek population).
 # Source: Cárdenas Pérez et al. 2026, Scientific Reports 16, article 964,
@@ -64,12 +89,16 @@ df_corr = pd.read_csv(io.StringIO(CORR_CSV), index_col=0)
 # ==========================================
 # 2. AI MODEL TRAINING (Ciechocinek only)
 # ==========================================
-X_c = df_ciech[['NaCl_mM']]
-y_biomass_c = df_ciech['FW']
-y_stiff_c = df_ciech['Stiffness']
+# Biomass: trained on the 4 originally available points (0, 200, 400, 1000 mM)
+X_biomass_c = df_ciech_biomass[['NaCl_mM']]
+y_biomass_c = df_ciech_biomass['FW']
 
-model_biomass_c = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_c, y_biomass_c)
-model_stiff_c = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_c, y_stiff_c)
+# Stiffness: trained on all 6 points now that 600/800 mM values are available
+X_stiff_c = df_ciech_stiffness[['NaCl_mM']]
+y_stiff_c = df_ciech_stiffness['Stiffness']
+
+model_biomass_c = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_biomass_c, y_biomass_c)
+model_stiff_c = RandomForestRegressor(n_estimators=100, random_state=42).fit(X_stiff_c, y_stiff_c)
 
 # ==========================================
 # 2b. MODEL EVALUATION (LOO-CV)
@@ -96,7 +125,9 @@ def compute_loo_cv(X, y, model_class, model_params=None):
 @st.cache_data
 def get_model_comparison():
     """Compute LOO-CV metrics for all candidate models on both targets.
-    Cached so the computation only runs once per session."""
+    Cached so the computation only runs once per session.
+    Note: Stiffness now uses n=6 points (600/800 mM added), while Biomass
+    still uses n=4 points pending FW data for 600/800 mM."""
     models = {
         'Random Forest': (RandomForestRegressor, {'n_estimators': 100, 'random_state': 42}),
         'Linear Regression': (LinearRegression, {}),
@@ -110,15 +141,15 @@ def get_model_comparison():
         })
     }
     results = []
-    for target_name, y in [('Stiffness', y_stiff_c), ('Biomass', y_biomass_c)]:
+    for target_name, X, y in [('Stiffness', X_stiff_c, y_stiff_c), ('Biomass', X_biomass_c, y_biomass_c)]:
         for name, (cls, params) in models.items():
             if cls == Pipeline:
                 loo = LeaveOneOut()
                 preds, actuals = [], []
-                for train_idx, test_idx in loo.split(X_c):
+                for train_idx, test_idx in loo.split(X):
                     m = Pipeline(**params)
-                    m.fit(X_c.iloc[train_idx], y.iloc[train_idx])
-                    preds.append(m.predict(X_c.iloc[test_idx])[0])
+                    m.fit(X.iloc[train_idx], y.iloc[train_idx])
+                    preds.append(m.predict(X.iloc[test_idx])[0])
                     actuals.append(y.iloc[test_idx].values[0])
                 metrics = {
                     'R²': r2_score(actuals, preds),
@@ -126,10 +157,11 @@ def get_model_comparison():
                     'MAE': mean_absolute_error(actuals, preds)
                 }
             else:
-                metrics = compute_loo_cv(X_c, y, cls, params)
+                metrics = compute_loo_cv(X, y, cls, params)
             results.append({
                 'Target': target_name,
                 'Model': name,
+                'N': len(X),
                 **metrics
             })
     return pd.DataFrame(results)
@@ -197,26 +229,61 @@ def get_extrapolation_warning(nacl_input, training_points):
     return (f"ℹ️ Note: {nacl_input} mM is {gap} mM from the nearest tested point "
             f"({nearest} mM); prediction is interpolated.")
 
+
 # ==========================================
 # 3b. REFERENCE PLANT PHOTOS (Ciechocinek)
 # ==========================================
-# One representative, standardized photo (white background + ruler for scale,
-# as provided by S. Cardenas Perez) per documented salinity level.
-# Place the actual files at:  images/ciechocinek/C<conc>.jpg
-# e.g. images/ciechocinek/C0.jpg, C200.jpg, C400.jpg, C600.jpg, C800.jpg, C1000.jpg
-CIECH_PHOTO_DIR = "images/ciechocinek"
+# Real repo layout (as uploaded by S. Cardenas Perez):
+#   images/ciechocinek/C<conc>/Cie <conc>/<several raw DSCF####.JPG files>
+# We just grab the first raw photo (sorted) inside each concentration's
+# "Cie <conc>" subfolder, skipping any processed/derivative files that sit
+# loose directly under C<conc> (e.g. *_outlined.jpg, *_RGB.jpg).
+import re
+
+CIECH_PHOTO_ROOT = "images/ciechocinek"
 CIECH_PHOTO_CONCENTRATIONS = [0, 200, 400, 600, 800, 1000]
 
+# Strict raw-camera-photo pattern: exactly "DSCF" + digits + ".JPG" (uppercase extension).
+# This automatically excludes every processed/derivative file we've seen
+# (e.g. DSCF5465-1_outlined.jpg, DSCF5465-3 RGB.jpg, DSCF5465Salic_C_b.jpg, *.jpg
+# lowercase variants) without needing to list them one by one.
+RAW_PHOTO_PATTERN = re.compile(r'^DSCF\d+\.JPG$')
 
-def get_nearest_photo_path(nacl_input, photo_dir=CIECH_PHOTO_DIR,
-                            available=CIECH_PHOTO_CONCENTRATIONS):
-    """Return (path, documented_conc) for the nearest concentration that has
-    a reference photo on disk. Returns (None, None) if no photo file exists yet."""
+
+def get_nearest_photos(nacl_input, root=CIECH_PHOTO_ROOT,
+                        available=CIECH_PHOTO_CONCENTRATIONS, max_photos=3):
+    """Return (list_of_paths, documented_conc) for the nearest concentration that has
+    raw reference photos on disk. Returns up to `max_photos` photos (sorted) so the
+    natural biological variability between replicate plants is visible.
+
+    Some concentration folders (e.g. C200) contain verified, pot-labelled raw photos
+    sitting directly under `C<conc>/` in addition to the `Cie <conc>/` subfolder (which
+    may hold duplicated/mislabeled files). We therefore check the loose folder first and
+    only fall back to the `Cie <conc>/` subfolder if nothing raw is found there.
+    Returns ([], documented_conc) if no matching raw photos are found yet.
+    """
     nearest = min(available, key=lambda c: abs(c - nacl_input))
-    path = os.path.join(photo_dir, f"C{nearest}.jpg")
-    if os.path.isfile(path):
-        return path, nearest
-    return None, nearest
+    conc_dir = os.path.join(root, f"C{nearest}")
+
+    def raw_photos_in(folder):
+        if not os.path.isdir(folder):
+            return []
+        return sorted(f for f in os.listdir(folder) if RAW_PHOTO_PATTERN.match(f))
+
+    # 1) Prefer verified raw photos sitting directly in C<conc>/
+    loose = raw_photos_in(conc_dir)
+    if loose:
+        chosen = loose[:max_photos]
+        return [os.path.join(conc_dir, f) for f in chosen], nearest
+
+    # 2) Fall back to the Cie <conc>/ subfolder
+    sub_dir = os.path.join(conc_dir, f"Cie {nearest}")
+    sub = raw_photos_in(sub_dir)
+    if sub:
+        chosen = sub[:max_photos]
+        return [os.path.join(sub_dir, f) for f in chosen], nearest
+
+    return [], nearest
 
 
 # ==========================================
@@ -236,13 +303,13 @@ st.markdown("""
     .st-emotion-cache-yn44r9 h3 {
     padding: 0.5rem 0px 0.5rem;
 }
-.st-emotion-cache-yn44r9 h4{
+    .st-emotion-cache-yn44r9 h4{
     padding: 0.5rem 0px 0.5rem;
 }
-            .st-emotion-cache-yn44r9 h1 {
-            font-size: 2rem;
+    .st-emotion-cache-yn44r9 h1 {
+    font-size: 2rem;
     text-align: center;
-            }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -265,7 +332,7 @@ with col_text:
             <h4 style="color: #3498db;">Data Source</h4>
             <p style="color: #555; line-height: 1.2;">
                 Ciechocinek population data developed based on the datasets provided by 
-                <strong>Dr. Stefany Cárdenas Pérez and Prof. Jaroslav Ďurkovič</strong> in their study published in 
+                <strong>Stefany Cárdenas Pérez and Jaroslav Ďurkovič</strong> in their study published in 
                 <i>(Cárdenas Pérez et al. 2026. Scientific Reports 16, article number 964, 
     doi.org/10.1038/s41598-025-30480-w)</i>
             </p>
@@ -296,13 +363,18 @@ if not is_ciechocinek:
         "model, so no prediction is generated for this population in the app."
     )
     st.subheader("📊 Reference Data - Inowrocław")
-    st.dataframe(df_inow.style.hide(axis="index").background_gradient(subset=['FW'], cmap='Greens'))
+    display_df_inow = df_inow.rename(columns={
+        'NaCl_mM': 'NaCl (mM)',
+        'Stiffness': 'Stiffness (MPa)',
+        'FW': 'FW (g)'
+    })
+    st.dataframe(display_df_inow.style.hide(axis="index").background_gradient(subset=['FW (g)'], cmap='Greens'))
     st.stop()
 
 # ==========================================
 # From here on: Ciechocinek only (full AI pipeline)
 # ==========================================
-current_df = df_ciech
+current_df = df_ciech_combined  # transparent reference table: FW is pending for 600/800 mM
 m_biomass = model_biomass_c
 m_stiff = model_stiff_c
 
@@ -315,13 +387,25 @@ input_df = pd.DataFrame([[nacl_input]], columns=['NaCl_mM'])
 predicted_biomass = m_biomass.predict(input_df)[0]
 predicted_stiffness = m_stiff.predict(input_df)[0]
 
-# Extrapolation warning
-extrap_msg = get_extrapolation_warning(nacl_input, TRAINING_POINTS_CIECH)
-if extrap_msg:
-    if extrap_msg.startswith("⚠️"):
-        st.warning(extrap_msg)
+# Extrapolation warnings (separate per target: Biomass model still has n=4, Stiffness now n=6)
+extrap_msg_biomass = get_extrapolation_warning(nacl_input, TRAINING_POINTS_CIECH_BIOMASS)
+extrap_msg_stiff = get_extrapolation_warning(nacl_input, TRAINING_POINTS_CIECH_STIFFNESS)
+
+if extrap_msg_biomass:
+    label = extrap_msg_biomass.replace("Extrapolation warning:", "Extrapolation warning (Biomass model, n=4):", 1) \
+        if extrap_msg_biomass.startswith("⚠️") else extrap_msg_biomass.replace("Note:", "Note (Biomass model, n=4):", 1)
+    if label.startswith("⚠️"):
+        st.warning(label)
     else:
-        st.caption(extrap_msg)
+        st.caption(label)
+
+if extrap_msg_stiff:
+    label = extrap_msg_stiff.replace("Extrapolation warning:", "Extrapolation warning (Stiffness model, n=6):", 1) \
+        if extrap_msg_stiff.startswith("⚠️") else extrap_msg_stiff.replace("Note:", "Note (Stiffness model, n=6):", 1)
+    if label.startswith("⚠️"):
+        st.warning(label)
+    else:
+        st.caption(label)
 
 # Display Metrics
 st.subheader("🧠 Expert System Analysis")
@@ -331,23 +415,26 @@ with col1:
 with col2:
     st.metric(label=f"Predicted Stiffness ({selected_pop})", value=f"{predicted_stiffness:.3f} MPa")
 
-# --- REFERENCE PLANT PHOTO ---
-photo_path, documented_conc = get_nearest_photo_path(nacl_input)
-if photo_path:
-    col_photo, col_caption = st.columns([1, 2])
-    with col_photo:
-        st.image(photo_path, width='stretch')
-    with col_caption:
-        if documented_conc == nacl_input:
-            st.caption(f"📷 Reference photo: Ciechocinek plant at {documented_conc} mM NaCl "
-                       f"(Cárdenas Pérez et al., original photographic documentation).")
-        else:
-            st.caption(f"📷 Closest documented reference photo available: {documented_conc} mM NaCl. "
-                       f"No photo was taken at exactly {nacl_input} mM.")
+# --- REFERENCE PLANT PHOTOS (multiple, to show natural biological variability) ---
+photo_paths, documented_conc = get_nearest_photos(nacl_input)
+if photo_paths:
+    st.caption(
+        (f"📷 Reference photos: {len(photo_paths)} replicate plants at {documented_conc} mM NaCl "
+         f"(Cárdenas Pérez et al., original photographic documentation)."
+         if documented_conc == nacl_input else
+         f"📷 Closest documented reference photos available: {documented_conc} mM NaCl "
+         f"(no photo was taken at exactly {nacl_input} mM).")
+        + " Note the natural variability between replicate plants grown under the same "
+          "treatment — this is expected biological variance, not measurement error."
+    )
+    photo_cols = st.columns(len(photo_paths))
+    for col, path in zip(photo_cols, photo_paths):
+        with col:
+            st.image(path, width='stretch')
 else:
-    st.caption(f"📷 Reference photo not yet available for {documented_conc} mM "
-               f"(closest documented concentration). Add it at "
-               f"`{CIECH_PHOTO_DIR}/C{documented_conc}.jpg` to display it here.")
+    st.caption(f"📷 Reference photos not yet available for {documented_conc} mM "
+               f"(closest documented concentration). Expected folder: "
+               f"`{CIECH_PHOTO_ROOT}/C{documented_conc}/Cie {documented_conc}/`")
 
 # Expert Rules
 st.write("---")
@@ -411,15 +498,18 @@ else:
 st.write("---")
 with st.expander("📊 Model Performance Evaluation (LOO-CV)", expanded=False):
     st.caption("**Leave-One-Out Cross-Validation** was used to evaluate model generalization. "
-              "With n=4 training points, each model is trained on 3 points and tested on the held-out point, "
-              "repeated 4 times. This provides a realistic estimate of how each model performs on unseen salinity values.")
+              "The Stiffness model now uses n=6 training points (600 and 800 mM NaCl were added "
+              "on 2026-08-08), while the Biomass model still uses n=4 points pending Fresh Weight "
+              "data for those two concentrations. Each model is trained on n−1 points and tested "
+              "on the held-out point, repeated n times per target.")
 
     for target in ['Stiffness', 'Biomass']:
         sub = df_model_comparison[df_model_comparison['Target'] == target].copy()
         unit = 'MPa' if target == 'Stiffness' else 'g'
-        st.markdown(f"**Target: Cell Wall {target} ({unit})**")
+        n_points = sub['N'].iloc[0] if not sub.empty else '?'
+        st.markdown(f"**Target: Cell Wall {target} ({unit}) — n = {n_points} training points**")
 
-        styled = sub.drop(columns='Target').style.format({
+        styled = sub.drop(columns=['Target', 'N']).style.format({
             'R²': '{:.4f}', 'RMSE': '{:.4f}', 'MAE': '{:.4f}'
         })
 
@@ -435,11 +525,14 @@ with st.expander("📊 Model Performance Evaluation (LOO-CV)", expanded=False):
     st.info("**Best model per target (green highlight):** The model with the highest R² and lowest RMSE/MAE. "
             "Note: Negative R² values indicate that the model performs worse than simply predicting the mean.")
 
-    st.warning("**Important note on model selection:** Although Leave-One-Out CV reveals that simpler models "
-                "(e.g., Linear Regression for Stiffness) achieve higher R² with the current n=4 dataset, "
-                "Random Forest was retained as the system's predictive layer for two key reasons:\n\n"
-                "1. **Architectural scalability:** RF is non-parametric and will naturally improve as additional "
-                "data points (e.g., 600, 800 mM NaCl) become available — without requiring structural code changes.\n\n"
+    st.warning("**Important note on model selection:** Although Leave-One-Out CV may reveal that simpler models "
+                "achieve higher R² on this small dataset, Random Forest was retained as the system's predictive "
+                "layer for two key reasons:\n\n"
+                "1. **Architectural scalability:** RF is non-parametric and improves as additional data points "
+                "become available without requiring structural code changes — as demonstrated by the Stiffness "
+                "model, which already expanded from 4 to 6 points (600 and 800 mM NaCl) without any code changes. "
+                "The Biomass model is expected to do the same once Fresh Weight data for those concentrations "
+                "is received.\n\n"
                 "2. **System objective:** The primary contribution of this Expert System is the Explainable AI "
                 "inference layer, not predictive accuracy per se. The predictions serve as exploratory hypotheses "
                 "to be interpreted by the rule-based engine, not as definitive empirical measurements.")
@@ -448,10 +541,10 @@ with st.expander("📊 Model Performance Evaluation (LOO-CV)", expanded=False):
 st.write("---")
 st.subheader(f"📈 Biomass Trend - {selected_pop}")
 
-area = alt.Chart(current_df).mark_area(color='#81c784', opacity=0.3, interpolate='monotone').encode(
+area = alt.Chart(df_ciech_biomass).mark_area(color='#81c784', opacity=0.3, interpolate='monotone').encode(
     x=alt.X('NaCl_mM:Q', title='NaCl (mM)'), y=alt.Y('FW:Q', title='Fresh Biomass (g)', scale=alt.Scale(zero=False))
 )
-line = alt.Chart(current_df).mark_line(color='#2e7d32', strokeWidth=3, interpolate='monotone', point=alt.OverlayMarkDef(size=80, filled=True)).encode(
+line = alt.Chart(df_ciech_biomass).mark_line(color='#2e7d32', strokeWidth=3, interpolate='monotone', point=alt.OverlayMarkDef(size=80, filled=True)).encode(
     x='NaCl_mM:Q', y='FW:Q'
 )
 user_pred_df = pd.DataFrame({'NaCl_mM': [nacl_input], 'FW': [predicted_biomass]})
@@ -459,10 +552,19 @@ point = alt.Chart(user_pred_df).mark_point(color='#d32f2f', size=250, filled=Tru
     x='NaCl_mM:Q', y='FW:Q', tooltip=['NaCl_mM', 'FW']
 )
 st.altair_chart(area + line + point)
+st.caption("ℹ️ Biomass trend is plotted from the 4 concentrations with confirmed Fresh Weight data "
+           "(0, 200, 400, 1000 mM). 600 and 800 mM are pending.")
 
 st.write("---")
 st.subheader(f"📊 Reference Data - {selected_pop}")
-st.dataframe(current_df.style.hide(axis="index").background_gradient(subset=['FW'], cmap='Greens'))
+st.caption("Stiffness is available for all 6 tested concentrations. Fresh Weight (biomass) for "
+           "600 and 800 mM is pending from the data provider and shown as blank below.")
+display_df = current_df.rename(columns={
+    'NaCl_mM': 'NaCl (mM)',
+    'Stiffness': 'Stiffness (MPa)',
+    'FW': 'FW (g)'
+})
+st.dataframe(display_df.style.hide(axis="index").background_gradient(subset=['FW (g)'], cmap='Greens'))
 
 # ==========================================
 # 5. SCIENTIFIC REPORT GENERATOR (PDF)
