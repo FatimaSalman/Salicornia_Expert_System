@@ -7,15 +7,21 @@ import io
 # ==========================================
 # 1. DATA PREPARATION
 # ==========================================
-# Fresh Weight (biomass): still only available for the original 4 concentrations
+# Fresh Weight (biomass): complete for all 6 concentrations as of 2026-08-09.
+# 600/800 mM confirmed by S. Cardenas Perez (Biomass_Ciech_and_Inow_Stefany_Cardenas.xlsx,
+# "Średnia F.W." column). The 1000 mM value stays at the published Table S1 figure
+# (0.50 g) -- a separate raw file's 0.58 g was confirmed by the data provider to likely
+# reflect an extra high-variability replicate and was not used.
 data_ciech_fw = """NaCl_mM,FW
 0,3.74
 200,9.73
 400,10.10
+600,6.47
+800,1.09
 1000,0.50"""
 df_fw = pd.read_csv(io.StringIO(data_ciech_fw))
 
-# Stiffness: now available for all 6 concentrations (600/800 mM added 2026-08-08,
+# Stiffness: complete for all 6 concentrations (600/800 mM added 2026-08-08,
 # from Force_Curve_Analysis_Ciechocinek_600_800__080726.xlsx, "Full Table" sheet)
 data_ciech_stiffness = """NaCl_mM,Stiffness
 0,1.790
@@ -26,7 +32,7 @@ data_ciech_stiffness = """NaCl_mM,Stiffness
 1000,0.357"""
 df_stiff = pd.read_csv(io.StringIO(data_ciech_stiffness))
 
-# Combined, ordered by concentration; FW is NaN (pending) for 600 & 800 mM
+# Combined, ordered by concentration -- both variables now complete for all 6 points
 df = pd.merge(df_stiff, df_fw, on='NaCl_mM', how='outer').sort_values('NaCl_mM').reset_index(drop=True)
 
 # Correlation matrix from Table S2 (Using the exact variables we use in the app)
@@ -50,14 +56,7 @@ fig1, ax1 = plt.subplots(figsize=(7.5, 4.5))
 x = np.arange(len(df['NaCl_mM']))
 width = 0.35
 
-# FW bars: real values where available, 0-height placeholder + "pending" label where missing
-fw_vals = df['FW'].fillna(0)
-bars1 = ax1.bar(x - width/2, fw_vals, width, label='Fresh Biomass (g)', color='#4caf50')
-for xi, (val, is_missing) in enumerate(zip(df['FW'], df['FW'].isna())):
-    if is_missing:
-        ax1.text(xi - width/2, 0.15, 'pending', rotation=90, ha='center', va='bottom',
-                  fontsize=7, color='#4caf50', style='italic')
-
+bars1 = ax1.bar(x - width/2, df['FW'], width, label='Fresh Biomass (g)', color='#4caf50')
 ax1.set_ylabel('Fresh Biomass (g)', color='#4caf50')
 ax1.tick_params(axis='y', labelcolor='#4caf50')
 

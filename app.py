@@ -43,6 +43,15 @@ data_ciechocinek_stiffness_extra = """NaCl_mM,Stiffness
 600,1.003
 800,0.605"""
 
+# NEW (2026-08-08 / confirmed 2026-08-XX): Fresh Weight values for 600 and 800 mM received
+# from S. Cardenas Perez (Biomass_Ciech_and_Inow_Stefany_Cardenas.xlsx, "Średnia F.W." column).
+# Note: the same file lists 1000 mM Ciechocinek FW as 0.58 g, which differs from the published
+# Table S1 value (0.50 g) currently used below -- this discrepancy is pending clarification
+# from the data provider, so the 1000 mM point is intentionally left unchanged for now.
+data_ciechocinek_biomass_extra = """NaCl_mM,FW
+600,6.47
+800,1.09"""
+
 data_inowroclaw = """NaCl_mM,Stiffness,FW
 0,0.518,3.44
 200,0.278,5.85
@@ -52,6 +61,7 @@ data_inowroclaw = """NaCl_mM,Stiffness,FW
 df_ciech = pd.read_csv(io.StringIO(data_ciechocinek))
 df_inow = pd.read_csv(io.StringIO(data_inowroclaw))
 df_ciech_stiff_extra = pd.read_csv(io.StringIO(data_ciechocinek_stiffness_extra))
+df_ciech_fw_extra = pd.read_csv(io.StringIO(data_ciechocinek_biomass_extra))
 
 # Full Stiffness dataset (6 points): original 4 + the new 600/800 mM values
 df_ciech_stiffness = pd.concat(
@@ -59,10 +69,14 @@ df_ciech_stiffness = pd.concat(
     ignore_index=True
 ).sort_values('NaCl_mM').reset_index(drop=True)
 
-# Biomass dataset stays at 4 points until FW for 600/800 mM is received
-df_ciech_biomass = df_ciech[['NaCl_mM', 'FW']].copy()
+# Full Biomass dataset (6 points): original 4 (1000 mM kept at the published 0.50 g pending
+# clarification) + the newly confirmed 600/800 mM values
+df_ciech_biomass = pd.concat(
+    [df_ciech[['NaCl_mM', 'FW']], df_ciech_fw_extra],
+    ignore_index=True
+).sort_values('NaCl_mM').reset_index(drop=True)
 
-# Combined reference table for transparent display (FW is NaN/pending for 600 & 800 mM)
+# Combined reference table for transparent display
 df_ciech_combined = pd.merge(df_ciech_stiffness, df_ciech_biomass, on='NaCl_mM', how='outer').sort_values('NaCl_mM').reset_index(drop=True)
 
 TRAINING_POINTS_CIECH_STIFFNESS = sorted(df_ciech_stiffness['NaCl_mM'].tolist())
@@ -126,8 +140,10 @@ def compute_loo_cv(X, y, model_class, model_params=None):
 def get_model_comparison():
     """Compute LOO-CV metrics for all candidate models on both targets.
     Cached so the computation only runs once per session.
-    Note: Stiffness now uses n=6 points (600/800 mM added), while Biomass
-    still uses n=4 points pending FW data for 600/800 mM."""
+    Note: as of 2026-08-08, both Stiffness and Biomass use n=6 points (600/800 mM
+    added). The 1000 mM Biomass value stays at the published Table S1 figure
+    (0.50 g); S. Cardenas Perez confirmed a newer raw file's 0.58 g likely included
+    an extra high-variability replicate and should not replace it."""
     models = {
         'Random Forest': (RandomForestRegressor, {'n_estimators': 100, 'random_state': 42}),
         'Linear Regression': (LinearRegression, {}),
@@ -374,7 +390,7 @@ if not is_ciechocinek:
 # ==========================================
 # From here on: Ciechocinek only (full AI pipeline)
 # ==========================================
-current_df = df_ciech_combined  # transparent reference table: FW is pending for 600/800 mM
+current_df = df_ciech_combined  # transparent reference table (all 6 concentrations)
 m_biomass = model_biomass_c
 m_stiff = model_stiff_c
 
@@ -387,25 +403,14 @@ input_df = pd.DataFrame([[nacl_input]], columns=['NaCl_mM'])
 predicted_biomass = m_biomass.predict(input_df)[0]
 predicted_stiffness = m_stiff.predict(input_df)[0]
 
-# Extrapolation warnings (separate per target: Biomass model still has n=4, Stiffness now n=6)
-extrap_msg_biomass = get_extrapolation_warning(nacl_input, TRAINING_POINTS_CIECH_BIOMASS)
-extrap_msg_stiff = get_extrapolation_warning(nacl_input, TRAINING_POINTS_CIECH_STIFFNESS)
-
-if extrap_msg_biomass:
-    label = extrap_msg_biomass.replace("Extrapolation warning:", "Extrapolation warning (Biomass model, n=4):", 1) \
-        if extrap_msg_biomass.startswith("⚠️") else extrap_msg_biomass.replace("Note:", "Note (Biomass model, n=4):", 1)
-    if label.startswith("⚠️"):
-        st.warning(label)
+# Extrapolation warning: both models now share the same 6 training points
+# (0, 200, 400, 600, 800, 1000 mM), so a single shared warning is sufficient.
+extrap_msg = get_extrapolation_warning(nacl_input, TRAINING_POINTS_CIECH_STIFFNESS)
+if extrap_msg:
+    if extrap_msg.startswith("⚠️"):
+        st.warning(extrap_msg)
     else:
-        st.caption(label)
-
-if extrap_msg_stiff:
-    label = extrap_msg_stiff.replace("Extrapolation warning:", "Extrapolation warning (Stiffness model, n=6):", 1) \
-        if extrap_msg_stiff.startswith("⚠️") else extrap_msg_stiff.replace("Note:", "Note (Stiffness model, n=6):", 1)
-    if label.startswith("⚠️"):
-        st.warning(label)
-    else:
-        st.caption(label)
+        st.caption(extrap_msg)
 
 # Display Metrics
 st.subheader("🧠 Expert System Analysis")
@@ -498,9 +503,8 @@ else:
 st.write("---")
 with st.expander("📊 Model Performance Evaluation (LOO-CV)", expanded=False):
     st.caption("**Leave-One-Out Cross-Validation** was used to evaluate model generalization. "
-              "The Stiffness model now uses n=6 training points (600 and 800 mM NaCl were added "
-              "on 2026-08-08), while the Biomass model still uses n=4 points pending Fresh Weight "
-              "data for those two concentrations. Each model is trained on n−1 points and tested "
+              "Both the Stiffness and Biomass models now use n=6 training points (600 and 800 mM "
+              "NaCl were added on 2026-08-08). Each model is trained on n−1 points and tested "
               "on the held-out point, repeated n times per target.")
 
     for target in ['Stiffness', 'Biomass']:
@@ -529,10 +533,9 @@ with st.expander("📊 Model Performance Evaluation (LOO-CV)", expanded=False):
                 "achieve higher R² on this small dataset, Random Forest was retained as the system's predictive "
                 "layer for two key reasons:\n\n"
                 "1. **Architectural scalability:** RF is non-parametric and improves as additional data points "
-                "become available without requiring structural code changes — as demonstrated by the Stiffness "
-                "model, which already expanded from 4 to 6 points (600 and 800 mM NaCl) without any code changes. "
-                "The Biomass model is expected to do the same once Fresh Weight data for those concentrations "
-                "is received.\n\n"
+                "become available without requiring structural code changes — as demonstrated by both the "
+                "Stiffness and Biomass models, which expanded from 4 to 6 points (600 and 800 mM NaCl) without "
+                "any code changes.\n\n"
                 "2. **System objective:** The primary contribution of this Expert System is the Explainable AI "
                 "inference layer, not predictive accuracy per se. The predictions serve as exploratory hypotheses "
                 "to be interpreted by the rule-based engine, not as definitive empirical measurements.")
@@ -552,13 +555,16 @@ point = alt.Chart(user_pred_df).mark_point(color='#d32f2f', size=250, filled=Tru
     x='NaCl_mM:Q', y='FW:Q', tooltip=['NaCl_mM', 'FW']
 )
 st.altair_chart(area + line + point)
-st.caption("ℹ️ Biomass trend is plotted from the 4 concentrations with confirmed Fresh Weight data "
-           "(0, 200, 400, 1000 mM). 600 and 800 mM are pending.")
+st.caption("ℹ️ Biomass trend is plotted from all 6 tested concentrations (0, 200, 400, 600, "
+           "800, 1000 mM).")
 
 st.write("---")
 st.subheader(f"📊 Reference Data - {selected_pop}")
-st.caption("Stiffness is available for all 6 tested concentrations. Fresh Weight (biomass) for "
-           "600 and 800 mM is pending from the data provider and shown as blank below.")
+st.caption("Stiffness and Fresh Weight are now available for all 6 tested concentrations. "
+           "Note: the 1000 mM Fresh Weight value (0.50 g) matches the published Table S1. "
+           "A separate raw data file listed 0.58 g for the same point, but S. Cárdenas Pérez "
+           "confirmed this likely reflects an additional high-variability replicate, so the "
+           "published 0.50 g value was retained.")
 display_df = current_df.rename(columns={
     'NaCl_mM': 'NaCl (mM)',
     'Stiffness': 'Stiffness (MPa)',
@@ -628,10 +634,14 @@ def create_report(current_pop, current_nacl, current_biomass, current_stiffness,
 
     is_current_saved = False
     if not log_df.empty:
-        last_row = log_df.iloc[-1]
-        if (last_row['Population'] == current_pop and
-            last_row['NaCl (mM)'] == current_nacl and
-            round(last_row['Predicted Biomass (g)'], 2) == round(current_biomass, 2)):
+        # Check ALL rows, not just the last one -- otherwise a live prediction that
+        # matches an earlier (non-last) log entry gets duplicated in the report.
+        matches = log_df[
+            (log_df['Population'] == current_pop) &
+            (log_df['NaCl (mM)'] == current_nacl) &
+            (log_df['Predicted Biomass (g)'].round(2) == round(current_biomass, 2))
+        ]
+        if not matches.empty:
             is_current_saved = True
 
     if not is_current_saved:
@@ -682,7 +692,49 @@ def create_report(current_pop, current_nacl, current_biomass, current_stiffness,
         pdf.set_font('DejaVu', '', 10)
         pdf.multi_cell(0, 6, f'   {clean_text}')
 
-    pdf.ln(10)
+    # --- Global Model Reliability Summary ---
+    # LOO-CV metrics describe the trained model as a whole and are identical for every
+    # scenario above -- they do not vary with the selected NaCl concentration, so this
+    # section appears once rather than being repeated per analysis.
+    pdf.ln(8)
+    pdf.set_draw_color(150, 150, 150)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(5)
+
+    pdf.set_font('DejaVu', 'B', 13)
+    pdf.set_text_color(52, 152, 219)
+    pdf.cell(0, 8, 'Model Reliability (Leave-One-Out Cross-Validation)', ln=True)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font('DejaVu', '', 9)
+    pdf.multi_cell(0, 5.5,
+        'The metrics below describe the trained Random Forest model as a whole and apply '
+        'equally to every scenario in this report -- they do not change based on which '
+        'NaCl concentration is examined.')
+    pdf.ln(2)
+
+    rf_rows = df_model_comparison[df_model_comparison['Model'] == 'Random Forest']
+    pdf.set_font('DejaVu', 'B', 10)
+    pdf.cell(45, 6, 'Target', border=1)
+    pdf.cell(20, 6, 'n', border=1, align='C')
+    pdf.cell(38, 6, 'R\u00b2', border=1, align='C')
+    pdf.cell(38, 6, 'RMSE', border=1, align='C')
+    pdf.cell(38, 6, 'MAE', border=1, align='C', ln=True)
+    pdf.set_font('DejaVu', '', 10)
+    for _, row in rf_rows.iterrows():
+        pdf.cell(45, 6, str(row['Target']), border=1)
+        pdf.cell(20, 6, str(row['N']), border=1, align='C')
+        pdf.cell(38, 6, f"{row['R\u00b2']:.4f}", border=1, align='C')
+        pdf.cell(38, 6, f"{row['RMSE']:.4f}", border=1, align='C')
+        pdf.cell(38, 6, f"{row['MAE']:.4f}", border=1, align='C', ln=True)
+
+    pdf.ln(3)
+    pdf.set_font('DejaVu', 'I', 9)
+    pdf.multi_cell(0, 5.5,
+        'Random Forest was retained as the predictive layer despite not always achieving the '
+        'highest cross-validated R\u00b2 on this small dataset, for architectural scalability '
+        'and explainability reasons (see manuscript Section 5 for details).')
+
+    pdf.ln(8)
     pdf.set_font('DejaVu', 'I', 9)
     pdf.cell(0, 8, 'Data Source: Cárdenas Pérez et al. (2026), Scientific Reports 16, 964.', ln=True)
 
