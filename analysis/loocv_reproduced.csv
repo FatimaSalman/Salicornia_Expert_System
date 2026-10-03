@@ -1,0 +1,9 @@
+Model,Variable,LOO-R2,LOO-RMSE,LOO-MAE
+Random Forest,Stiffness (MPa),0.5113,0.3309,0.2923
+Random Forest,Biomass (g),0.0494,3.7175,3.3905
+Linear Regression,Stiffness (MPa),0.9125,0.14,0.1211
+Linear Regression,Biomass (g),-0.8933,5.2463,4.5484
+SVR (RBF),Stiffness (MPa),0.9055,0.1455,0.1379
+SVR (RBF),Biomass (g),-1.0715,5.4877,5.3831
+Polynomial (deg=2),Stiffness (MPa),0.7717,0.2262,0.1736
+Polynomial (deg=2),Biomass (g),-1.3393,5.8317,4.827

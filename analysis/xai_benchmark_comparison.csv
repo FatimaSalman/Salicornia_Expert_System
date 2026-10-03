@@ -1,0 +1,4 @@
+Scenario,Salinity (mM),RF biomass pred (g),SHAP(sal)->biomass,LIME w(sal)->biomass,RF stiffness pred (MPa),SHAP(sal)->stiffness,LIME w(sal)->stiffness,Inference Engine (stiffness),Inference Engine (biomass)
+B (freshwater),0.0,5.62,0.475,1.61271,1.633,0.563,-0.292657,Cellulose (r=+0.950); H (r=-0.889),S/G (r=+0.944); Pectin HM-HG (r=+0.897)
+A (optimal),400.0,9.72,4.568,-2.73924,1.294,0.224,-0.399794,Cellulose (r=+0.950); H (r=-0.889),S/G (r=+0.944); Pectin HM-HG (r=+0.897)
+C (extreme),1000.0,1.09,-4.058,-3.53368,0.469,-0.601,-0.345488,Cellulose (r=+0.950); H (r=-0.889),S/G (r=+0.944); Pectin HM-HG (r=+0.897)

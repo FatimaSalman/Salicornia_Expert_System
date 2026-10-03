@@ -1,0 +1,70 @@
+{
+  "shap": {
+    "B (freshwater)": {
+      "salinity_mM": 0.0,
+      "biomass_pred": 5.622800000000007,
+      "biomass_base": 5.148133333333336,
+      "biomass_shap_salinity": 0.47466666666666724,
+      "stiff_pred": 1.6331000000000002,
+      "stiff_base": 1.06968,
+      "stiff_shap_salinity": 0.5634199999999994
+    },
+    "A (optimal)": {
+      "salinity_mM": 400.0,
+      "biomass_pred": 9.716600000000014,
+      "biomass_base": 5.148133333333336,
+      "biomass_shap_salinity": 4.568466666666662,
+      "stiff_pred": 1.2938800000000015,
+      "stiff_base": 1.06968,
+      "stiff_shap_salinity": 0.22419999999999982
+    },
+    "C (extreme)": {
+      "salinity_mM": 1000.0,
+      "biomass_pred": 1.0901000000000005,
+      "biomass_base": 5.148133333333336,
+      "biomass_shap_salinity": -4.058033333333332,
+      "stiff_pred": 0.46873999999999955,
+      "stiff_base": 1.06968,
+      "stiff_shap_salinity": -0.6009400000000013
+    }
+  },
+  "lime": {
+    "B (freshwater)": {
+      "biomass_lime_weight": 1.6127055688044316,
+      "biomass_lime_intercept": 9.203173742145484,
+      "stiff_lime_weight": -0.29265746562059797
+    },
+    "A (optimal)": {
+      "biomass_lime_weight": -2.7392396171805924,
+      "biomass_lime_intercept": 6.980919090954644,
+      "stiff_lime_weight": -0.3997936770375509
+    },
+    "C (extreme)": {
+      "biomass_lime_weight": -3.533675330140985,
+      "biomass_lime_intercept": 6.149718050850138,
+      "stiff_lime_weight": -0.3454877183233179
+    }
+  },
+  "inference_engine": {
+    "stiffness": [
+      [
+        "Cellulose",
+        0.95
+      ],
+      [
+        "H",
+        -0.889
+      ]
+    ],
+    "biomass": [
+      [
+        "S/G",
+        0.944
+      ],
+      [
+        "Pectin HM-HG",
+        0.897
+      ]
+    ]
+  }
+}
