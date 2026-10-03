@@ -445,6 +445,8 @@ else:
 st.write("---")
 if nacl_input > 800:
     st.error(f"🚨 **Critical Stress Alert for {selected_pop}!** Extreme salinity. NOT recommended.")
+elif nacl_input > 600:
+    st.warning(f"🔶 **High Stress Zone for {selected_pop}.** Steep decline expected between 600 and 800 mM.")
 elif 200 <= nacl_input <= 600:
     st.success(f"✅ **Optimal Growth Zone for {selected_pop}.** Ideal osmotic potential.")
 elif 0 < nacl_input < 200:
